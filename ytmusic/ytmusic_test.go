@@ -1,62 +1,128 @@
-package ytmusic
+package ytmusic_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
+
+	"github.com/tamnd/ytmusic-cli/ytmusic"
 )
 
-func TestGet(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("User-Agent") == "" {
-			t.Error("request carried no User-Agent")
-		}
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
+func newTestClient(ts *httptest.Server) *ytmusic.Client {
+	cfg := ytmusic.DefaultConfig()
+	cfg.BaseURL = ts.URL
+	cfg.Rate = 0
+	return ytmusic.NewClient(cfg)
+}
 
-	c := NewClient()
-	c.Rate = 0 // no pacing in the test
+// buildSearchResponse builds a fake InnerTube search response.
+func buildSearchResponse(items []map[string]any) []byte {
+	data, _ := json.Marshal(map[string]any{
+		"contents": map[string]any{
+			"tabbedSearchResultsRenderer": map[string]any{
+				"tabs": []any{
+					map[string]any{
+						"tabRenderer": map[string]any{
+							"content": map[string]any{
+								"sectionListRenderer": map[string]any{
+									"contents": []any{
+										map[string]any{
+											"musicShelfRenderer": map[string]any{
+												"contents": items,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	return data
+}
 
-	body, err := c.Get(context.Background(), srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != "ok" {
-		t.Errorf("body = %q, want %q", body, "ok")
+func makeItem(title, artist, album, duration, videoID string) map[string]any {
+	return map[string]any{
+		"musicResponsiveListItemRenderer": map[string]any{
+			"flexColumns": []any{
+				map[string]any{
+					"musicResponsiveListItemFlexColumnRenderer": map[string]any{
+						"text": map[string]any{
+							"runs": []any{
+								map[string]any{"text": title},
+							},
+						},
+					},
+				},
+				map[string]any{
+					"musicResponsiveListItemFlexColumnRenderer": map[string]any{
+						"text": map[string]any{
+							"runs": []any{
+								map[string]any{"text": "Song"},
+								map[string]any{"text": " • "},
+								map[string]any{"text": artist},
+								map[string]any{"text": " • "},
+								map[string]any{"text": album},
+								map[string]any{"text": " • "},
+								map[string]any{"text": duration},
+							},
+						},
+					},
+				},
+			},
+			"overlay": map[string]any{
+				"musicItemThumbnailOverlayRenderer": map[string]any{
+					"content": map[string]any{
+						"musicPlayButtonRenderer": map[string]any{
+							"playNavigationEndpoint": map[string]any{
+								"watchEndpoint": map[string]any{
+									"videoId": videoID,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
-func TestGetRetriesOn503(t *testing.T) {
-	var hits int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		if hits < 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
+func TestSearchSongs(t *testing.T) {
+	items := []map[string]any{
+		makeItem("Jazz Song 1", "Artist A", "Album X", "3:45", "abc123"),
+		makeItem("Jazz Song 2", "Artist B", "Album Y", "4:12", "def456"),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/search") {
+			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte("recovered"))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, string(buildSearchResponse(items)))
 	}))
-	defer srv.Close()
+	defer ts.Close()
 
-	c := NewClient()
-	c.Rate = 0
-	c.Retries = 5
-
-	start := time.Now()
-	body, err := c.Get(context.Background(), srv.URL)
+	c := newTestClient(ts)
+	songs, err := c.SearchSongs(context.Background(), "jazz", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "recovered" {
-		t.Errorf("body = %q after retries", body)
+	if len(songs) != 2 {
+		t.Fatalf("got %d songs, want 2", len(songs))
 	}
-	if hits != 3 {
-		t.Errorf("server saw %d hits, want 3", hits)
+	if songs[0].Title != "Jazz Song 1" {
+		t.Errorf("title = %q, want 'Jazz Song 1'", songs[0].Title)
 	}
-	if time.Since(start) < 500*time.Millisecond {
-		t.Error("retries did not back off")
+	if songs[0].Artist != "Artist A" {
+		t.Errorf("artist = %q, want 'Artist A'", songs[0].Artist)
+	}
+	if songs[0].VideoID != "abc123" {
+		t.Errorf("videoID = %q, want 'abc123'", songs[0].VideoID)
 	}
 }

@@ -1,10 +1,8 @@
 # ytmusic
 
-A command line for ytmusic.
+Search [YouTube Music](https://music.youtube.com) songs, artists, albums, and playlists from the command line.
 
-`ytmusic` is a single pure-Go binary. It speaks to ytmusic over plain
-HTTPS, shapes the responses into clean records, and pipes into the rest of your
-tools. No API key, nothing to run alongside it.
+`ytmusic` is a single pure-Go binary. No API key required.
 
 ## Install
 
@@ -12,8 +10,7 @@ tools. No API key, nothing to run alongside it.
 go install github.com/tamnd/ytmusic-cli/cmd/ytmusic@latest
 ```
 
-Or grab a prebuilt binary from the [releases](https://github.com/tamnd/ytmusic-cli/releases), or run
-the container image:
+Or grab a prebuilt binary from the [releases](https://github.com/tamnd/ytmusic-cli/releases), or run the container image:
 
 ```bash
 docker run --rm ghcr.io/tamnd/ytmusic:latest --help
@@ -22,41 +19,47 @@ docker run --rm ghcr.io/tamnd/ytmusic:latest --help
 ## Usage
 
 ```bash
-ytmusic --help
-ytmusic version
+# Search for songs (default)
+ytmusic search "jazz"
+ytmusic search "lo-fi hip hop"
+
+# Search for artists
+ytmusic search "skrillex" --kind artists
+
+# Search for albums
+ytmusic search "dark side of the moon" --kind albums
+
+# Search for playlists
+ytmusic search "workout" --kind playlists
+
+# Output formats
+ytmusic search "jazz" -o json
+ytmusic search "classical" -o csv -n 10
+ytmusic search "rock" -o table
 ```
 
-This is a fresh scaffold. The command tree starts with `version`; build out the
-real commands in `cli/` on top of the `ytmusic` library package.
+## Commands
 
-## Development
+| Command | Description |
+|---------|-------------|
+| `search <query>` | Search YouTube Music for songs, artists, albums, or playlists |
+| `version` | Show version information |
+
+## Search kinds
+
+`songs` (default), `artists`, `albums`, `playlists`
+
+## Global flags
 
 ```
-cmd/ytmusic/   thin main, wires cli.Root into fang
-cli/                 the cobra command tree
-ytmusic/                the library: HTTP client and data models
-docs/                tago documentation site
+-o, --output string    output format: table|json|jsonl|csv|tsv|url|raw (default "auto")
+-n, --limit int        limit number of records (0 = command default: 20)
+    --fields strings   comma-separated columns to include
+    --no-header        omit header row
+    --template string  Go text/template per record
+    --timeout duration per-request timeout (default 30s)
+    --delay duration   minimum spacing between requests
 ```
-
-```bash
-make build      # ./bin/ytmusic
-make test       # go test ./...
-make vet        # go vet ./...
-```
-
-## Releasing
-
-Push a version tag and GitHub Actions runs GoReleaser, which builds the
-archives, Linux packages, the multi-arch GHCR image, checksums, SBOMs, and a
-cosign signature:
-
-```bash
-git tag v0.1.0
-git push --tags
-```
-
-The Homebrew and Scoop steps self-disable until their tokens exist, so the first
-release works with no extra secrets.
 
 ## License
 
